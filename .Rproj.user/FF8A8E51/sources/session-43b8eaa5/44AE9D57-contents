@@ -1,0 +1,323 @@
+# ============================================================================
+# MovieLens Recommender System - Test IBCF Model with Validation
+# 
+# This script loads, tests, and validates the trained IBCF model
+# ============================================================================
+
+# Load required libraries
+library(tidyverse)      # For data manipulation
+library(recommenderlab) # For recommender algorithms
+
+# ============================================================================
+# 1. Load the trained model and necessary data
+# ============================================================================
+cat("Loading model and data...\n")
+
+# Check if model exists
+if (!file.exists("models/ibcf_model.rds")) {
+  stop("IBCF model not found. Please train the model first.")
+}
+
+# Load the model
+ibcf_model <- readRDS("models/ibcf_model.rds")
+cat("IBCF model loaded successfully\n")
+
+# Load necessary data for testing
+if (file.exists("data/prepared_data.RData")) {
+  # Load the prepared data
+  load("data/prepared_data.RData")
+  cat("Prepared data loaded successfully\n")
+  
+  # Check if we have the necessary objects and standardize variable names
+  if (!exists("movies_clean") && !exists("movies_filtered")) {
+    stop("Movies data not found in prepared data")
+  }
+  
+  if (!exists("r_matrix")) {
+    stop("Rating matrix not found in prepared data")
+  }
+  
+  if (!exists("eval_scheme") && !exists("evaluation_scheme")) {
+    cat("Warning: No evaluation scheme found. Will create one for validation.\n")
+    # We'll create an evaluation scheme later
+  } else if (!exists("eval_scheme") && exists("evaluation_scheme")) {
+    eval_scheme <- evaluation_scheme
+  }
+  
+  # Standardize variable names
+  if (!exists("movies_filtered") && exists("movies_clean")) {
+    movies_filtered <- movies_clean
+  }
+} else {
+  stop("Prepared data not found. Please run data preparation first.")
+}
+
+# ============================================================================
+# 2. Model Validation
+# ============================================================================
+cat("\nValidating IBCF model performance...\n")
+
+# Create evaluation scheme if it doesn't exist
+if (!exists("eval_scheme")) {
+  cat("Creating new evaluation scheme for validation...\n")
+  set.seed(123)
+  eval_scheme <- evaluationScheme(
+    r_matrix,
+    method = "split",
+    train = 0.8,
+    given = 5,
+    goodRating = 3.5
+  )
+}
+
+# 2.1 Calculate Prediction Accuracy Metrics (RMSE, MAE)
+cat("\nCalculating prediction accuracy metrics...\n")
+
+# Get known and unknown parts from evaluation scheme
+known_ratings <- getData(eval_scheme, "known")
+unknown_ratings <- getData(eval_scheme, "unknown")
+
+# Generate predictions
+predictions <- predict(ibcf_model, known_ratings)
+
+# Calculate accuracy metrics
+accuracy <- calcPredictionAccuracy(predictions, 
+                                   unknown_ratings, 
+                                   goodRating = 3.5, 
+                                   given = 5)
+
+cat("Prediction accuracy metrics:\n")
+print(accuracy)
+
+# 2.2 Evaluate with standard recommender system metrics
+cat("\nEvaluating with precision, recall, and other metrics...\n")
+
+# Run standard evaluation
+eval_results <- evaluate(
+  eval_scheme,
+  method = "IBCF",
+  parameter = list(k = 30, method = "cosine"),
+  n = c(1, 5, 10, 15, 20)
+)
+
+# Get results
+evaluation_metrics <- getConfusionMatrix(eval_results)[[1]]
+cat("Evaluation results by number of recommendations:\n")
+print(evaluation_metrics)
+
+# 2.3 Compare with other algorithms as benchmarks
+cat("\nComparing with benchmark algorithms...\n")
+
+# Define algorithms to compare
+algorithms <- list(
+  IBCF = list(name = "IBCF", param = list(k = 30, method = "cosine")),
+  POPULAR = list(name = "POPULAR", param = NULL),  # Popular items
+  RANDOM = list(name = "RANDOM", param = NULL)     # Random recommendations
+)
+
+# Add UBCF if it exists
+if (file.exists("models/ubcf_model.rds")) {
+  algorithms$UBCF <- list(name = "UBCF", param = list(nn = 30, method = "cosine"))
+}
+
+# Run evaluation for all algorithms
+cat("Running comparison evaluation (this might take a moment)...\n")
+comparison_results <- evaluate(
+  eval_scheme,
+  algorithms,
+  n = c(1, 5, 10)
+)
+
+# Create a summary of results at n=10
+results_n10 <- lapply(getConfusionMatrix(comparison_results), function(x) x[3,])
+comparison_df <- do.call(rbind, results_n10)
+
+cat("\nComparison of algorithms (n=10 recommendations):\n")
+print(comparison_df)
+
+# 2.4 Create ROC and Precision-Recall Curves
+cat("\nCreating ROC and Precision-Recall curves...\n")
+
+# Set up plotting device
+pdf("results/ibcf_validation_plots.pdf")
+
+# Plot ROC curve
+plot(comparison_results, "ROC", annotate = TRUE, main = "ROC Curve Comparison")
+
+# Plot Precision-Recall curve
+plot(comparison_results, "prec/rec", annotate = TRUE, main = "Precision-Recall Curve")
+
+# Plot Precision and Recall by number of items
+plot(comparison_results, "prec", annotate = TRUE, main = "Precision by Number of Items")
+plot(comparison_results, "rec", annotate = TRUE, main = "Recall by Number of Items")
+
+# Close PDF device
+dev.off()
+cat("Validation plots saved to results/ibcf_validation_plots.pdf\n")
+
+# 2.5 Analyze Coverage and Diversity
+cat("\nAnalyzing recommendation coverage and diversity...\n")
+
+# Function to get diversity metrics (genres) for recommendations
+analyze_diversity <- function(model, user_ids, n = 10) {
+  # Initialize counters
+  total_genres <- 0
+  unique_genres <- c()
+  unique_movies <- c()
+  
+  for (user in user_ids) {
+    # Get user data
+    user_row <- r_matrix[user,]
+    
+    # Generate predictions
+    pred <- predict(model, user_row, n = n)
+    rec_list <- as(pred, "list")[[1]]
+    
+    # Add to unique movies
+    unique_movies <- c(unique_movies, rec_list)
+    
+    # Get genres for recommended movies
+    genres <- movies_filtered %>%
+      filter(movieId %in% rec_list) %>%
+      pull(genres) %>%
+      strsplit("\\|") %>%
+      unlist()
+    
+    # Count genres
+    total_genres <- total_genres + length(genres)
+    unique_genres <- c(unique_genres, genres)
+  }
+  
+  # Calculate metrics
+  return(list(
+    unique_movie_ratio = length(unique(unique_movies)) / length(unique_movies),
+    avg_genres_per_rec = total_genres / (length(user_ids) * n),
+    unique_genres = length(unique(unique_genres)),
+    genre_diversity = length(unique(unique_genres)) / length(unique_genres)
+  ))
+}
+
+# Sample users for diversity analysis
+set.seed(456)
+sample_users <- sample(rownames(r_matrix), 50)
+
+# Analyze diversity for IBCF
+diversity_metrics <- analyze_diversity(ibcf_model, sample_users, n = 10)
+
+cat("Diversity metrics for IBCF recommendations:\n")
+cat("- Unique movie ratio:", diversity_metrics$unique_movie_ratio, 
+    "(higher is better)\n")
+cat("- Average genres per recommendation:", diversity_metrics$avg_genres_per_rec, "\n")
+cat("- Number of unique genres recommended:", diversity_metrics$unique_genres, "\n")
+cat("- Genre diversity ratio:", diversity_metrics$genre_diversity, 
+    "(higher is better)\n")
+
+# ============================================================================
+# 3. Test the model with sample users (as before)
+# ============================================================================
+cat("\nTesting IBCF model with sample users...\n")
+
+# Function to get recommendations for a user
+get_recommendations <- function(model, user_id, n = 10) {
+  # Check if user exists in the data
+  if (!(user_id %in% rownames(r_matrix))) {
+    return(paste("User", user_id, "not found in the dataset"))
+  }
+  
+  # Get user ratings - using proper conversion for S4 class
+  user_row <- r_matrix[user_id,]
+  # Convert to a regular matrix, then to a vector
+  user_ratings_matrix <- as(user_row, "matrix")
+  user_ratings <- user_ratings_matrix[1,]
+  # Keep only non-NA ratings
+  rated_items <- which(!is.na(user_ratings))
+  user_ratings <- user_ratings[rated_items]
+  movie_ids_rated <- colnames(r_matrix)[rated_items]
+  names(user_ratings) <- movie_ids_rated
+  
+  # Create a test set for the user
+  test_user <- user_row
+  
+  # Generate predictions
+  predictions <- predict(model, test_user, n = n)
+  
+  # Convert to list
+  rec_list <- as(predictions, "list")
+  
+  # Get movie IDs
+  movie_ids <- rec_list[[1]]
+  
+  # Get movie details
+  rec_movies <- movies_filtered %>%
+    filter(movieId %in% movie_ids) %>%
+    select(movieId, title, genres) %>%
+    arrange(match(movieId, movie_ids))
+  
+  return(list(
+    recommendations = rec_movies,
+    user_ratings = user_ratings
+  ))
+}
+
+# Get a list of all users
+all_users <- rownames(r_matrix)
+
+# Select some sample users (randomly)
+set.seed(123)  # For reproducibility
+sample_users <- sample(all_users, 3)
+
+# Generate recommendations for sample users
+for (user in sample_users) {
+  cat("\n========================================\n")
+  cat("Recommendations for User", user, ":\n")
+  
+  # Get recommendations and user ratings
+  result <- get_recommendations(ibcf_model, user, n = 10)
+  
+  # Extract user's top rated movies
+  user_ratings <- result$user_ratings
+  sorted_ratings <- sort(user_ratings, decreasing = TRUE)
+  top_ratings <- head(sorted_ratings, 5)
+  
+  # Get movie details for top rated movies
+  top_movie_ids <- names(top_ratings)
+  top_rated_movies <- movies_filtered %>%
+    filter(movieId %in% top_movie_ids) %>%
+    mutate(rating = top_ratings[match(movieId, top_movie_ids)]) %>%
+    select(movieId, title, genres, rating) %>%
+    arrange(desc(rating))
+  
+  cat("\nUser's top rated movies:\n")
+  print(top_rated_movies)
+  
+  cat("\nRecommended movies:\n")
+  print(result$recommendations)
+  cat("========================================\n")
+}
+
+# ============================================================================
+# 4. Save validation results
+# ============================================================================
+cat("\nSaving validation results...\n")
+
+# Create directory for results if it doesn't exist
+dir.create("results", showWarnings = FALSE)
+
+# Save accuracy metrics
+write.csv(as.data.frame(t(accuracy)), "results/ibcf_accuracy.csv", row.names = TRUE)
+
+# Save evaluation metrics
+write.csv(evaluation_metrics, "results/ibcf_evaluation_metrics.csv", row.names = FALSE)
+
+# Save comparison results
+write.csv(comparison_df, "results/algorithm_comparison.csv", row.names = TRUE)
+
+# Save diversity metrics
+write.csv(as.data.frame(diversity_metrics), "results/ibcf_diversity.csv", row.names = FALSE)
+
+cat("Validation results saved to results directory\n")
+
+# ============================================================================
+# Done
+# ============================================================================
+cat("\nIBCF Model testing and validation complete!\n")

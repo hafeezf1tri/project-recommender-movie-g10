@@ -1,0 +1,162 @@
+# Load required libraries
+library(recommenderlab)
+library(ggplot2)
+library(data.table)
+library(reshape2)
+library(dplyr)
+
+# Set random seed for reproducibility
+set.seed(123)
+
+# ===== 1. LOAD PREPARED DATA AND PRE-TRAINED MODEL =====
+# Load the prepared data which should contain:
+# - movies: movie information dataframe
+# - ratings_sparse: already converted realRatingMatrix object
+load("data/prepared_data.Rdata")
+
+# Verify the loaded data
+cat("Loaded prepared data:\n")
+if(exists("ratings_sparse")) {
+  cat("- ratings_sparse object found (class:", class(ratings_sparse)[1], ")\n")
+  cat("- Dimensions of ratings_sparse:", dim(ratings_sparse), "\n")
+} else {
+  stop("Error: ratings_sparse not found in prepared_data.Rdata")
+}
+
+if(exists("movies")) {
+  cat("- movies dataframe found with", nrow(movies), "rows\n")
+} else {
+  warning("Warning: movies dataframe not found in prepared_data.Rdata")
+}
+
+# Load the pre-trained IBCF model
+# Assuming the model was saved as "ibcf_model.rds"
+ibcf_model <- readRDS("models/ibcf_model.rds")
+cat("Loaded pre-trained IBCF model\n")
+
+# Check the dimensions of the sparse matrix
+cat("Dimensions of sparse matrix:", dim(ratings_sparse), "\n")
+
+# ===== 3. CREATE EVALUATION SCHEME =====
+# Create a proper evaluation scheme for testing
+eval_scheme <- evaluationScheme(
+  ratings_sparse,
+  method = "cross-validation",
+  k = 5,  # 5-fold cross-validation
+  given = 10,  # Use 10 items per user for training
+  goodRating = 3.5  # Ratings >= 3.5 are considered "good"
+)
+
+# ===== 4. DEFINE THE ALGORITHM FOR EVALUATION =====
+# Get the parameters from the pre-trained model
+model_params <- getModel(ibcf_model)
+k_value <- model_params$k
+similarity_method <- model_params$method
+
+cat("Testing IBCF model with parameters:", 
+    "k =", k_value, "and similarity method =", similarity_method, "\n")
+
+# Define the algorithm for evaluation using the same parameters as the pre-trained model
+algorithms <- list(
+  IBCF = list(
+    name = "IBCF",
+    param = list(
+      k = k_value,
+      method = similarity_method
+    )
+  )
+)
+
+# ===== 5. RUN THE EVALUATION =====
+cat("Running cross-validation evaluation...\n")
+
+# Evaluate the model with different numbers of recommendations
+# This calculates metrics like precision, recall, and ROC curves
+eval_results <- evaluate(
+  eval_scheme,
+  algorithms,
+  n = c(1, 3, 5, 10, 15, 20),  # Number of recommendations to make
+  type = "topNList"  # For precision and recall metrics
+)
+
+# Get and print average evaluation metrics
+avg_metrics <- avg(eval_results)
+cat("\nAverage evaluation metrics:\n")
+print(avg_metrics)
+
+# ===== 6. CALCULATE ADDITIONAL ACCURACY METRICS =====
+# Create a new evaluation scheme for RMSE calculation
+rmse_scheme <- evaluationScheme(
+  ratings_sparse,
+  method = "split",
+  train = 0.8,
+  given = -1,  # Use all available ratings
+  goodRating = 3.5
+)
+
+# Get training and test data
+train_data <- getData(rmse_scheme, "train")
+test_data <- getData(rmse_scheme, "known")
+
+# Train a new model using the same parameters (for RMSE calculation)
+temp_model <- Recommender(
+  train_data,
+  method = "IBCF",
+  parameter = list(
+    k = k_value,
+    method = similarity_method
+  )
+)
+
+# Make predictions on test data
+predictions <- predict(temp_model, test_data, type = "ratings")
+
+# Calculate prediction accuracy (RMSE, MAE, MSE)
+error_metrics <- calcPredictionAccuracy(predictions, test_data)
+cat("\nError metrics:\n")
+print(error_metrics)
+
+# ===== 7. VISUALIZE EVALUATION RESULTS =====
+# Plot ROC curve
+pdf("roc_curve.pdf")
+plot(eval_results, annotate = TRUE, main = "ROC Curve")
+dev.off()
+
+# Plot precision-recall curve
+pdf("precision_recall_curve.pdf")
+plot(eval_results, "prec/rec", annotate = TRUE, main = "Precision-Recall Curve")
+dev.off()
+
+# Plot precision and recall at different recommendation list sizes
+pdf("precision_recall_n.pdf")
+plot(eval_results, "prec/rec", annotate = TRUE, 
+     main = "Precision-Recall by Number of Recommendations")
+dev.off()
+
+# ===== 8. CONFUSION MATRIX (FOR A SPECIFIC THRESHOLD) =====
+# Calculate confusion matrix statistics for n=10 recommendations
+conf_mat <- eval_results@cm[[1]]$IBCF$confusion[, 10, ]
+true_positives <- conf_mat["tp"]
+false_positives <- conf_mat["fp"]
+true_negatives <- conf_mat["tn"]
+false_negatives <- conf_mat["fn"]
+
+# Calculate metrics from confusion matrix
+precision <- true_positives / (true_positives + false_positives)
+recall <- true_positives / (true_positives + false_negatives)
+f1_score <- 2 * (precision * recall) / (precision + recall)
+accuracy <- (true_positives + true_negatives) / 
+  (true_positives + true_negatives + false_positives + false_negatives)
+
+cat("\nConfusion Matrix Metrics (n=10):\n")
+cat("Precision:", precision, "\n")
+cat("Recall:", recall, "\n")
+cat("F1 Score:", f1_score, "\n")
+cat("Accuracy:", accuracy, "\n")
+
+# ===== 9. SAVE EVALUATION RESULTS =====
+# Save the evaluation results for further analysis or reporting
+saveRDS(eval_results, "ibcf_evaluation_results.rds")
+saveRDS(error_metrics, "ibcf_error_metrics.rds")
+
+cat("\nEvaluation complete. Results saved to RDS files.\n")

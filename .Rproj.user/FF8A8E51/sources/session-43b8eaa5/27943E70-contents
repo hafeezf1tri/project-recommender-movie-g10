@@ -1,0 +1,135 @@
+# ============================================================================
+# MovieLens Recommender System - Test UBCF Model (Fixed)
+# 
+# This script loads and tests the trained UBCF model by generating 
+# recommendations for sample users - with fixed vector conversion
+# ============================================================================
+
+# Load required libraries
+library(tidyverse)      # For data manipulation
+library(recommenderlab) # For recommender algorithms
+
+# ============================================================================
+# 1. Load the trained model and necessary data
+# ============================================================================
+cat("Loading model and data...\n")
+
+# Check if model exists
+if (!file.exists("models/ubcf_model.rds")) {
+  stop("UBCF model not found. Please train the model first.")
+}
+
+# Load the model
+ubcf_model <- readRDS("models/ubcf_model.rds")
+cat("UBCF model loaded successfully\n")
+
+# Load necessary data for testing
+if (file.exists("data/prepared_data.RData")) {
+  # Load the prepared data
+  load("data/prepared_data.RData")
+  cat("Prepared data loaded successfully\n")
+  
+  # Check if we have the necessary objects
+  if (!exists("movies_clean") && !exists("movies_filtered")) {
+    stop("Movies data not found in prepared data")
+  }
+  
+  if (!exists("r_matrix")) {
+    stop("Rating matrix not found in prepared data")
+  }
+  
+  # Standardize variable names
+  if (!exists("movies_filtered") && exists("movies_clean")) {
+    movies_filtered <- movies_clean
+  }
+} else {
+  stop("Prepared data not found. Please run data preparation first.")
+}
+
+# ============================================================================
+# 2. Test the model with sample users
+# ============================================================================
+cat("\nTesting UBCF model with sample users...\n")
+
+# Function to get recommendations for a user
+get_recommendations <- function(model, user_id, n = 10) {
+  # Check if user exists in the data
+  if (!(user_id %in% rownames(r_matrix))) {
+    return(paste("User", user_id, "not found in the dataset"))
+  }
+  
+  # Get user ratings - using proper conversion for S4 class
+  user_row <- r_matrix[user_id,]
+  # Convert to a regular matrix, then to a vector
+  user_ratings_matrix <- as(user_row, "matrix")
+  user_ratings <- user_ratings_matrix[1,]
+  # Keep only non-NA ratings
+  rated_items <- which(!is.na(user_ratings))
+  user_ratings <- user_ratings[rated_items]
+  movie_ids_rated <- colnames(r_matrix)[rated_items]
+  names(user_ratings) <- movie_ids_rated
+  
+  # Create a test set for the user
+  test_user <- user_row
+  
+  # Generate predictions
+  predictions <- predict(model, test_user, n = n)
+  
+  # Convert to list
+  rec_list <- as(predictions, "list")
+  
+  # Get movie IDs
+  movie_ids <- rec_list[[1]]
+  
+  # Get movie details
+  rec_movies <- movies_filtered %>%
+    filter(movieId %in% movie_ids) %>%
+    select(movieId, title, genres) %>%
+    arrange(match(movieId, movie_ids))
+  
+  return(list(
+    recommendations = rec_movies,
+    user_ratings = user_ratings
+  ))
+}
+
+# Get a list of all users
+all_users <- rownames(r_matrix)
+
+# Select some sample users (randomly)
+set.seed(123)  # For reproducibility
+sample_users <- sample(all_users, 3)
+
+# Generate recommendations for sample users
+for (user in sample_users) {
+  cat("\n========================================\n")
+  cat("Recommendations for User", user, ":\n")
+  
+  # Get recommendations and user ratings
+  result <- get_recommendations(ubcf_model, user, n = 10)
+  
+  # Extract user's top rated movies
+  user_ratings <- result$user_ratings
+  sorted_ratings <- sort(user_ratings, decreasing = TRUE)
+  top_ratings <- head(sorted_ratings, 5)
+  
+  # Get movie details for top rated movies
+  top_movie_ids <- names(top_ratings)
+  top_rated_movies <- movies_filtered %>%
+    filter(movieId %in% top_movie_ids) %>%
+    mutate(rating = top_ratings[match(movieId, top_movie_ids)]) %>%
+    select(movieId, title, genres, rating) %>%
+    arrange(desc(rating))
+  
+  cat("\nUser's top rated movies:\n")
+  print(top_rated_movies)
+  
+  cat("\nRecommended movies:\n")
+  print(result$recommendations)
+  cat("========================================\n")
+}
+
+# ============================================================================
+# Done
+# ============================================================================
+cat("\nModel testing complete!\n")
