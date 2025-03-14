@@ -113,20 +113,7 @@ The project scope includes:
   - ggplot2
   - shiny
 
-## Running the Shiny App
-```r
-# Navigate to the app directory
-setwd("path/to/app")
 
-# Run the application
-shiny::runApp()
-```
-
-## Future Work
-- Implement hybrid recommendation models
-- Explore additional evaluation metrics
-- Improve catalog coverage
-- Enhance visualization in the Shiny dashboard
 
 ## References
 - MovieLens dataset: https://grouplens.org/datasets/movielens/
