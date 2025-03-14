@@ -84,26 +84,23 @@ The project scope includes:
 ├── [6] IBCF model creation and training.R
 ├── [7] IBCF TESTING.R
 ├── [8] Multi Testing IBCF and UBCF models.R
-├── models/
-│   ├── ibcf_model.rds
-│   └── ubcf_model.rds
+├──  ibcf_model.rds
+├── ubcf_model.rds
 ├── prepared_data.RData
 ├── processed_data.RData
 ├── movie-recommender-g10.Rproj
-├── visualizations/
-│   ├── genre_distribution.pdf
-│   ├── precision_recall_comparison.pdf
-│   ├── rating_distribution.pdf
-│   ├── rating_distribution_analysis.pdf
-│   ├── recommender_error_metrics.pdf
-│   ├── ubcf_rmse_distribution.pdf
-│   ├── ubcf_validation_prec_rec.pdf
-│   ├── ubcf_validation_roc.pdf
-│   └── user_activity.pdf
-├── results/
-│   ├── precision_recall_data.csv
-│   ├── recommender_metrics_summary.csv
-│   └── recommender_precision_recall.csv
+├── genre_distribution.pdf
+├── precision_recall_comparison.pdf
+├── rating_distribution.pdf
+├── rating_distribution_analysis.pdf
+├── recommender_error_metrics.pdf
+├── ubcf_rmse_distribution.pdf
+├── ubcf_validation_prec_rec.pdf
+├── ubcf_validation_roc.pdf
+├── user_activity.pdf
+├── precision_recall_data.csv
+├── recommender_metrics_summary.csv
+├── recommender_precision_recall.csv
 └── README.md
 ```
 
