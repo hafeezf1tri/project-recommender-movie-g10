@@ -1,5 +1,5 @@
-# Item-Based Collaborative Filtering (IBCF) Implementation
-# This script trains and evaluates an IBCF model on the MovieLens dataset
+# IBCF Model Validation Script
+# This script evaluates a pre-trained IBCF model without accuracy testing
 
 # Load required libraries
 library(recommenderlab)
@@ -10,159 +10,66 @@ library(ggplot2)
 # Set random seed for reproducibility
 set.seed(123)
 
-# ===== 1. LOAD PREPARED DATA =====
-cat("Loading prepared data...\n")
+# ===== 1. LOAD PRE-TRAINED MODEL =====
+cat("Loading pre-trained IBCF model...\n")
+if (!file.exists("ibcf_model.rds")) {
+  stop("Error: ibcf_model.rds file not found!")
+}
+
+ibcf_model <- readRDS("ibcf_model.rds")
+
+# Check if the model is valid
+if (class(ibcf_model)[1] != "Recommender") {
+  stop("Error: The loaded object is not a valid Recommender model!")
+}
+
+cat("IBCF model loaded successfully.\n")
+cat("Model method:", ibcf_model@model$method, "\n")
+
+# Extract model details
+model_details <- getModel(ibcf_model)
+cat("k value (neighbors):", model_details$k, "\n")
+cat("Similarity method:", model_details$method, "\n")
+cat("Similarity matrix dimensions:", dim(model_details$sim), "\n")
+
+# Calculate similarity matrix sparsity
+sim_sparsity <- 1 - (sum(model_details$sim != 0) / (ncol(model_details$sim)^2))
+cat("Similarity matrix sparsity:", sprintf("%.2f%%", sim_sparsity * 100), "\n")
+
+# ===== 2. LOAD PREPARED DATA =====
+cat("\nLoading prepared data...\n")
 if (!file.exists("prepared_data.RData")) {
   stop("Error: prepared_data.RData file not found!")
 }
 
 load("prepared_data.RData")
 
-# Decide which ratings matrix to use (center-normalized is often better for IBCF)
+# Determine which rating matrix to use
 if ("ratings_center" %in% names(prepared_data) && 
     class(prepared_data$ratings_center)[1] == "realRatingMatrix") {
   ratings_data <- prepared_data$ratings_center
-  cat("Using center-normalized ratings for IBCF\n")
+  cat("Using center-normalized ratings for validation\n")
 } else if ("ratings_sparse" %in% names(prepared_data) && 
            class(prepared_data$ratings_sparse)[1] == "realRatingMatrix") {
   ratings_data <- prepared_data$ratings_sparse
-  cat("Using regular ratings matrix for IBCF\n")
+  cat("Using regular ratings matrix for validation\n")
 } else {
   stop("Error: No valid rating matrix found in prepared data")
 }
 
 cat("Rating matrix dimensions:", dim(ratings_data), "\n")
 
-# ===== 2. TRAIN IBCF MODEL WITH DIFFERENT PARAMETERS =====
-cat("\nTraining IBCF models with different parameters...\n")
-
-# Define parameter combinations to test
-k_values <- c(10, 20, 30, 50)  # Number of similar items
-method_values <- c("cosine", "pearson")  # Similarity measures
-
-# Store results
-ibcf_results <- data.frame()
-
-# Record start time for tracking performance
-start_time <- Sys.time()
-
-# Iterate through parameter combinations
-for (k in k_values) {
-  for (method in method_values) {
-    cat(sprintf("Training IBCF with k=%d, method=%s...\n", k, method))
-    
-    # Train the model with current parameters
-    tryCatch({
-      # Train the model
-      ibcf_model <- Recommender(
-        ratings_data,
-        method = "IBCF",
-        parameter = list(
-          k = k,  # Number of similar items
-          method = method  # Similarity measure
-        )
-      )
-      
-      # Extract model details
-      model_details <- getModel(ibcf_model)
-      
-      # Calculate model size (memory footprint)
-      model_size <- object.size(ibcf_model)
-      
-      # Calculate similarity matrix sparsity
-      sim_matrix <- model_details$sim
-      sim_sparsity <- 1 - (sum(sim_matrix != 0) / (ncol(sim_matrix)^2))
-      
-      # Add to results
-      ibcf_results <- rbind(ibcf_results, data.frame(
-        k = k,
-        method = method,
-        training_time = as.numeric(difftime(Sys.time(), start_time, units = "secs")),
-        model_size_mb = as.numeric(model_size) / (1024^2),
-        sim_matrix_sparsity = sim_sparsity
-      ))
-      
-      cat(sprintf("  Complete. Model size: %.2f MB, Similarity matrix sparsity: %.2f%%\n", 
-                  as.numeric(model_size) / (1024^2), 
-                  sim_sparsity * 100))
-      
-      # Reset start time for next model
-      start_time <- Sys.time()
-    }, error = function(e) {
-      cat("  Error training model:", e$message, "\n")
-    })
-  }
-}
-
-# If we have results, print a summary
-if (nrow(ibcf_results) > 0) {
-  cat("\nSummary of IBCF models trained:\n")
-  print(ibcf_results)
-}
-
-# ===== 3. SELECT BEST MODEL BASED ON PRACTICAL CONSIDERATIONS =====
-# Since we're not doing accuracy testing, choose based on reasonable balance
-# between model size and similarity matrix sparsity
-
-if (nrow(ibcf_results) > 0) {
-  # Normalize metrics to 0-1 scale
-  ibcf_results$norm_size <- (ibcf_results$model_size_mb - min(ibcf_results$model_size_mb)) / 
-    (max(ibcf_results$model_size_mb) - min(ibcf_results$model_size_mb))
-  
-  # We want higher sparsity (to save memory) so invert the normalization
-  ibcf_results$norm_sparsity <- 1 - (ibcf_results$sim_matrix_sparsity - min(ibcf_results$sim_matrix_sparsity)) / 
-    (max(ibcf_results$sim_matrix_sparsity) - min(ibcf_results$sim_matrix_sparsity))
-  
-  # Calculate a score (lower is better)
-  ibcf_results$score <- 0.7 * ibcf_results$norm_size + 0.3 * ibcf_results$norm_sparsity
-  
-  # Select model with best score
-  best_model <- ibcf_results[which.min(ibcf_results$score), ]
-  
-  cat("\nSelected IBCF model parameters:\n")
-  cat("k =", best_model$k, ", method =", as.character(best_model$method), "\n")
-} else {
-  # Default parameters if no models were successfully trained
-  cat("\nUsing default IBCF parameters: k=30, method=cosine\n")
-  best_k <- 30
-  best_method <- "cosine"
-}
-
-# ===== 4. TRAIN FINAL MODEL =====
-cat("\nTraining final IBCF model...\n")
-
-# Get parameters for final model
-if (exists("best_model")) {
-  best_k <- best_model$k
-  best_method <- as.character(best_model$method)
-} else {
-  best_k <- 30
-  best_method <- "cosine"
-}
-
-# Train final model
-ibcf_model <- Recommender(
-  ratings_data,
-  method = "IBCF",
-  parameter = list(
-    k = best_k,
-    method = best_method
-  )
-)
-
-cat("Final IBCF model trained successfully.\n")
-
-# Extract model details for analysis
-model_details <- getModel(ibcf_model)
-cat("Model details:\n")
-cat("- Number of items:", length(model_details$itemMeans), "\n")
-cat("- Similarity matrix dimensions:", dim(model_details$sim), "\n")
-
-# ===== 5. ANALYZE ITEM SIMILARITIES =====
+# ===== 3. ANALYZE ITEM SIMILARITIES =====
 cat("\nAnalyzing item similarities...\n")
 
 # Function to get similar items
 get_similar_items <- function(item_id, n = 5) {
+  # Check if item exists in similarity matrix
+  if (!(item_id %in% rownames(model_details$sim))) {
+    cat("Item", item_id, "not found in similarity matrix.\n")
+    return(NULL)
+  }
+  
   sim_vector <- model_details$sim[item_id, ]
   similar_items <- sort(sim_vector, decreasing = TRUE)[2:(n+1)]  # Skip the first (self)
   return(similar_items)
@@ -175,17 +82,24 @@ if ("movie_popularity" %in% names(prepared_data)) {
     head(5) %>%
     pull(movieId)
 } else if ("movies_filtered" %in% names(prepared_data)) {
-  # Just pick 5 random movies if we don't have popularity data
-  popular_movies <- sample(prepared_data$movies_filtered$movieId, 5)
+  # Just pick 5 movies randomly if we don't have popularity data
+  all_movie_ids <- prepared_data$movies_filtered$movieId
+  popular_movies <- sample(all_movie_ids, 5)
 } else {
-  # Or pick 5 random column indices if we don't have movie metadata
-  popular_movies <- sample(colnames(ratings_data), 5)
+  # Or use column names if we don't have movie data
+  popular_movies <- sample(colnames(model_details$sim), 5)
 }
+
+# Analysis of similarity patterns
+similarity_stats <- c()
 
 # Analyze similar items for popular movies
 for (movie_id in popular_movies) {
+  # Convert to character if it's not already
+  movie_id_char <- as.character(movie_id)
+  
   # Skip if movie is not in the similarity matrix
-  if (!(movie_id %in% rownames(model_details$sim))) {
+  if (!(movie_id_char %in% rownames(model_details$sim))) {
     cat("Movie ID", movie_id, "not found in similarity matrix. Skipping.\n")
     next
   }
@@ -193,7 +107,15 @@ for (movie_id in popular_movies) {
   cat(sprintf("\nSimilar movies to movie ID %s:\n", movie_id))
   
   # Get similar movies
-  similar_items <- get_similar_items(as.character(movie_id), 5)
+  similar_items <- get_similar_items(movie_id_char, 5)
+  
+  if (is.null(similar_items) || length(similar_items) == 0) {
+    cat("  No similar items found.\n")
+    next
+  }
+  
+  # Store similarity values for statistics
+  similarity_stats <- c(similarity_stats, similar_items)
   
   # Print similar movies with details if available
   if ("movies_filtered" %in% names(prepared_data)) {
@@ -211,9 +133,12 @@ for (movie_id in popular_movies) {
       similar_id <- names(similar_items)[i]
       similarity <- similar_items[i]
       
+      # Convert to numeric ID for filtering
+      similar_id_num <- as.numeric(similar_id)
+      
       # Get movie details
       movie_details <- prepared_data$movies_filtered %>%
-        filter(movieId == as.numeric(similar_id)) %>%
+        filter(movieId == similar_id_num) %>%
         select(movieId, title, genres)
       
       if (nrow(movie_details) > 0) {
@@ -236,7 +161,7 @@ for (movie_id in popular_movies) {
   }
 }
 
-# ===== 6. GENERATE SAMPLE RECOMMENDATIONS =====
+# ===== 4. GENERATE SAMPLE RECOMMENDATIONS =====
 cat("\nGenerating sample recommendations...\n")
 
 # Get a sample of users
@@ -288,7 +213,7 @@ for (user in sample_users) {
   })
 }
 
-# ===== 7. RECOMMENDATION DIVERSITY ANALYSIS =====
+# ===== 5. RECOMMENDATION DIVERSITY ANALYSIS =====
 cat("\nAnalyzing recommendation diversity...\n")
 
 # Get recommendations for 50 random users (or all valid users if less than 50)
@@ -346,7 +271,34 @@ if(length(all_rec_movies) > 0) {
       "(higher is better)\n")
 }
 
-# ===== 8. MODEL QUALITY SUMMARY =====
+# ===== 6. GENRE ANALYSIS =====
+cat("\nAnalyzing genre distribution in recommendations...\n")
+
+# Check if we have genre information
+if ("movies_filtered" %in% names(prepared_data) && "genres" %in% names(prepared_data$movies_filtered)) {
+  # Extract all genres from recommended movies
+  if (length(all_rec_movies) > 0 && length(all_unique_movies) > 0) {
+    recommended_genres <- prepared_data$movies_filtered %>%
+      filter(movieId %in% all_unique_movies) %>%
+      pull(genres)
+    
+    # Split genres and count occurrences
+    genre_list <- unlist(strsplit(recommended_genres, "\\|"))
+    genre_counts <- table(genre_list)
+    
+    # Display top genres in recommendations
+    cat("Top genres in recommendations:\n")
+    top_genres <- sort(genre_counts, decreasing = TRUE)[1:min(10, length(genre_counts))]
+    for (i in 1:length(top_genres)) {
+      cat(sprintf("  %s: %d movies (%.1f%%)\n", 
+                  names(top_genres)[i],
+                  top_genres[i],
+                  top_genres[i] / length(all_unique_movies) * 100))
+    }
+  }
+}
+
+# ===== 7. MODEL QUALITY SUMMARY =====
 cat("\n===== IBCF MODEL QUALITY SUMMARY =====\n")
 
 # Show diversity score if it exists
@@ -406,22 +358,83 @@ if(exists("diversity_score") && !is.nan(diversity_score) && !is.na(diversity_sco
   # Combined score weighted 70% diversity, 30% success rate
   overall_score <- (diversity_score * 0.7) + (min(success_rate/10, 10) * 0.3)
   
-  cat("\nOverall model quality score:", sprintf("%.1f/10", overall_score), "\n")
-  
-  if(overall_score >= 7.5) {
-    cat("EXCELLENT - Model is performing very well and ready for deployment\n")
-  } else if(overall_score >= 6.0) {
-    cat("GOOD - Model is performing adequately and suitable for most purposes\n")
-  } else if(overall_score >= 4.5) {
-    cat("FAIR - Model is functional but could benefit from improvements\n")
+  if(!is.nan(overall_score) && !is.na(overall_score)) {
+    cat("\nOverall model quality score:", sprintf("%.1f/10", overall_score), "\n")
+    
+    if(overall_score >= 7.5) {
+      cat("EXCELLENT - Model is performing very well and ready for deployment\n")
+    } else if(overall_score >= 6.0) {
+      cat("GOOD - Model is performing adequately and suitable for most purposes\n")
+    } else if(overall_score >= 4.5) {
+      cat("FAIR - Model is functional but could benefit from improvements\n")
+    } else {
+      cat("POOR - Model needs significant improvements before deployment\n")
+    }
   } else {
-    cat("POOR - Model needs significant improvements before deployment\n")
+    cat("\nUnable to calculate overall score due to invalid values\n")
   }
 }
 
-# ===== 9. SAVE THE MODEL =====
-cat("\nSaving the final IBCF model...\n")
-saveRDS(ibcf_model, "ibcf_model.rds")
-cat("Model saved to 'ibcf_model.rds'\n")
+# ===== 8. COMPARISON WITH UBCF (IF AVAILABLE) =====
+cat("\nComparing with UBCF model (if available)...\n")
 
-cat("\nIBCF model training and evaluation complete!\n")
+# Load UBCF model if available
+if (file.exists("ubcf_model.rds")) {
+  tryCatch({
+    ubcf_model <- readRDS("ubcf_model.rds")
+    cat("UBCF model loaded for comparison.\n")
+    
+    # Get recommendations from both models for the same users
+    comparison_users <- sample(valid_users, min(10, length(valid_users)))
+    model_overlap <- 0
+    total_recs <- 0
+    
+    for(user in comparison_users) {
+      # Get UBCF recommendations
+      ubcf_recs <- predict(
+        ubcf_model,
+        ratings_data[user],
+        n = 10,
+        type = "topNList"
+      )
+      ubcf_movie_ids <- as(ubcf_recs, "list")[[1]]
+      
+      # Get IBCF recommendations
+      ibcf_recs <- predict(
+        ibcf_model,
+        ratings_data[user],
+        n = 10,
+        type = "topNList"
+      )
+      ibcf_movie_ids <- as(ibcf_recs, "list")[[1]]
+      
+      # Calculate overlap
+      common_recs <- intersect(ubcf_movie_ids, ibcf_movie_ids)
+      overlap_pct <- length(common_recs) / length(union(ubcf_movie_ids, ibcf_movie_ids)) * 100
+      
+      model_overlap <- model_overlap + length(common_recs)
+      total_recs <- total_recs + length(union(ubcf_movie_ids, ibcf_movie_ids))
+    }
+    
+    # Calculate overall overlap
+    if(total_recs > 0) {
+      overall_overlap <- model_overlap / total_recs * 100
+      cat("Average recommendation overlap between UBCF and IBCF:", 
+          sprintf("%.1f%%", overall_overlap), "\n")
+      
+      if(overall_overlap < 30) {
+        cat("LOW overlap - The models provide substantially different recommendations\n")
+      } else if(overall_overlap < 60) {
+        cat("MODERATE overlap - The models provide somewhat different recommendations\n")
+      } else {
+        cat("HIGH overlap - The models provide similar recommendations\n")
+      }
+    }
+  }, error = function(e) {
+    cat("Error comparing with UBCF model:", e$message, "\n")
+  })
+} else {
+  cat("UBCF model not found - comparison skipped.\n")
+}
+
+cat("\nIBCF model validation complete!\n")

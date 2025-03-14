@@ -402,7 +402,7 @@ if(exists("all_unique_movies")) {
 # Overall assessment based on diversity and success rate
 if(exists("diversity_score") && !is.nan(diversity_score) && !is.na(diversity_score) && 
    exists("success_rate") && !is.nan(success_rate) && !is.na(success_rate)) {
-  s
+  
   # Combined score weighted 70% diversity, 30% success rate
   overall_score <- (diversity_score * 0.7) + (min(success_rate/10, 10) * 0.3)
   
