@@ -1,0 +1,273 @@
+# Simple Precision-Recall Evaluation for Recommender Systems
+# This script calculates simplified precision and recall metrics that will work reliably
+
+# Load required libraries
+library(recommenderlab)
+library(tidyverse)
+
+# Set random seed for reproducibility
+set.seed(456)  # Using a different seed than before
+
+# ===== 1. LOAD MODELS AND DATA =====
+cat("Loading models and prepared data...\n")
+
+# Check for UBCF model
+if (!file.exists("ubcf_model.rds")) {
+  stop("Error: ubcf_model.rds file not found!")
+}
+
+# Check for IBCF model
+if (!file.exists("ibcf_model.rds")) {
+  stop("Error: ibcf_model.rds file not found!")
+}
+
+# Load models
+ubcf_model <- readRDS("ubcf_model.rds")
+ibcf_model <- readRDS("ibcf_model.rds")
+
+# Load data
+if (!file.exists("prepared_data.RData")) {
+  stop("Error: prepared_data.RData file not found!")
+}
+
+load("prepared_data.RData")
+
+# Get appropriate rating matrices
+if ("ratings_sparse" %in% names(prepared_data) && 
+    class(prepared_data$ratings_sparse)[1] == "realRatingMatrix") {
+  ratings_data <- prepared_data$ratings_sparse
+  cat("Using regular ratings matrix\n")
+} else {
+  stop("Error: No valid rating matrix found in prepared data")
+}
+
+# ===== 2. SIMPLIFIED PRECISION-RECALL EVALUATION =====
+cat("\nPerforming simplified precision-recall evaluation...\n")
+
+# This function uses a simpler approach:
+# 1. For each test user, we already know which items they rated highly
+# 2. We generate recommendations for the user
+# 3. We see how many of the recommended items match items they already rated highly
+# This approach guarantees we'll get precision/recall values
+simplified_precision_recall <- function(model, data, n_recs = 10, n_users = 100) {
+  # Get users with a good number of ratings
+  ratings_per_user <- rowCounts(data)
+  valid_users <- which(ratings_per_user >= 30)  # Users with at least 30 ratings
+  
+  if (length(valid_users) == 0) {
+    cat("Not enough users with sufficient ratings\n")
+    return(NULL)
+  }
+  
+  # Sample users for testing
+  test_users <- sample(valid_users, min(n_users, length(valid_users)))
+  
+  # Initialize results
+  results <- list()
+  
+  for (i in 1:length(test_users)) {
+    user_id <- test_users[i]
+    
+    # Get items this user has already rated
+    user_profile <- as(data[user_id,], "matrix")[1,]
+    user_profile_items <- which(!is.na(user_profile))
+    
+    # Get only highly rated items (4+ stars) as "relevant" items
+    highly_rated <- which(user_profile >= 4.0 & !is.na(user_profile))
+    
+    # Skip users with too few highly rated items
+    if (length(highly_rated) < 5) {
+      next
+    }
+    
+    # Create a test profile with half of the highly rated items hidden
+    n_to_hide <- floor(length(highly_rated) / 2)
+    items_to_hide <- sample(highly_rated, n_to_hide)
+    
+    test_profile <- user_profile
+    test_profile[items_to_hide] <- NA
+    
+    test_matrix <- matrix(test_profile, nrow=1)
+    colnames(test_matrix) <- colnames(as(data[user_id,], "matrix"))
+    test_matrix <- as(test_matrix, "realRatingMatrix")
+    
+    # Generate recommendations
+    tryCatch({
+      recommendations <- predict(model, test_matrix, n = n_recs, type = "topNList")
+      rec_items <- as(recommendations, "list")[[1]]
+      
+      # Convert recommended items to column indices
+      rec_indices <- as.numeric(match(rec_items, colnames(data)))
+      
+      # Calculate how many hidden highly rated items were recommended
+      hits <- sum(rec_indices %in% items_to_hide)
+      
+      # Calculate precision and recall
+      precision <- hits / length(rec_indices)
+      recall <- hits / length(items_to_hide)
+      
+      # Calculate F1 score
+      f1 <- ifelse(precision + recall > 0, 
+                   2 * (precision * recall) / (precision + recall), 
+                   0)
+      
+      # Store results
+      results[[i]] <- list(
+        user_id = user_id,
+        precision = precision,
+        recall = recall,
+        f1 = f1,
+        n_recommended = length(rec_indices),
+        n_hidden = length(items_to_hide),
+        n_hits = hits
+      )
+      
+      # Show progress
+      if (i %% 10 == 0) {
+        cat(sprintf("Processed %d/%d users\n", i, length(test_users)))
+      }
+      
+    }, error = function(e) {
+      cat("Error processing user", user_id, ":", e$message, "\n")
+    })
+  }
+  
+  # Filter out NULL results
+  results <- results[!sapply(results, is.null)]
+  
+  # Calculate average metrics
+  if (length(results) > 0) {
+    # Extract metrics
+    precision_values <- sapply(results, function(x) x$precision)
+    recall_values <- sapply(results, function(x) x$recall)
+    f1_values <- sapply(results, function(x) x$f1)
+    
+    # Calculate averages
+    avg_precision <- mean(precision_values)
+    avg_recall <- mean(recall_values)
+    avg_f1 <- mean(f1_values)
+    
+    # Display summary
+    cat("\nSummary statistics:\n")
+    cat("Number of users evaluated:", length(results), "\n")
+    cat("Average precision:", round(avg_precision, 4), "\n")
+    cat("Average recall:", round(avg_recall, 4), "\n")
+    cat("Average F1 score:", round(avg_f1, 4), "\n")
+    
+    return(list(
+      precision = avg_precision,
+      recall = avg_recall,
+      f1 = avg_f1,
+      n_users = length(results),
+      details = results
+    ))
+  } else {
+    cat("No valid results obtained\n")
+    return(NULL)
+  }
+}
+
+# Evaluate UBCF model
+cat("\nEvaluating UBCF model with simplified approach...\n")
+ubcf_metrics <- simplified_precision_recall(ubcf_model, ratings_data)
+
+# Evaluate IBCF model
+cat("\nEvaluating IBCF model with simplified approach...\n")
+ibcf_metrics <- simplified_precision_recall(ibcf_model, ratings_data)
+
+# ===== 3. SUMMARIZE RESULTS =====
+cat("\n===== SIMPLIFIED PRECISION-RECALL RESULTS =====\n")
+
+# Create a summary table
+metrics_table <- data.frame(
+  Metric = c("Precision", "Recall", "F1 Score"),
+  UBCF = c(
+    ifelse(!is.null(ubcf_metrics), round(ubcf_metrics$precision, 4), NA),
+    ifelse(!is.null(ubcf_metrics), round(ubcf_metrics$recall, 4), NA),
+    ifelse(!is.null(ubcf_metrics), round(ubcf_metrics$f1, 4), NA)
+  ),
+  IBCF = c(
+    ifelse(!is.null(ibcf_metrics), round(ibcf_metrics$precision, 4), NA),
+    ifelse(!is.null(ibcf_metrics), round(ibcf_metrics$recall, 4), NA),
+    ifelse(!is.null(ibcf_metrics), round(ibcf_metrics$f1, 4), NA)
+  )
+)
+
+# Print the table
+print(metrics_table)
+
+# Save metrics table
+write.csv(metrics_table, "recommender_precision_recall.csv", row.names = FALSE)
+cat("\nPrecision-recall metrics saved to 'recommender_precision_recall.csv'\n")
+
+# Create a comparison visualization
+if (!is.null(ubcf_metrics) || !is.null(ibcf_metrics)) {
+  # Prepare data for visualization
+  plot_data <- data.frame(
+    Algorithm = c(
+      rep("UBCF", 3 * ifelse(!is.null(ubcf_metrics), 1, 0)),
+      rep("IBCF", 3 * ifelse(!is.null(ibcf_metrics), 1, 0))
+    ),
+    Metric = rep(c("Precision", "Recall", "F1 Score"), 
+                 ifelse(!is.null(ubcf_metrics), 1, 0) + 
+                   ifelse(!is.null(ibcf_metrics), 1, 0)),
+    Value = c(
+      if (!is.null(ubcf_metrics)) c(ubcf_metrics$precision, ubcf_metrics$recall, ubcf_metrics$f1) else c(),
+      if (!is.null(ibcf_metrics)) c(ibcf_metrics$precision, ibcf_metrics$recall, ibcf_metrics$f1) else c()
+    )
+  )
+  
+  # Create the plot if we have data
+  if (nrow(plot_data) > 0) {
+    # Save as CSV for potential external visualization
+    write.csv(plot_data, "precision_recall_data.csv", row.names = FALSE)
+    
+    # Create a simple table-like visualization that's more reliable
+    pdf("precision_recall_comparison.pdf", width = 8, height = 6)
+    # Create an empty plot
+    plot(1, 1, type = "n", xlim = c(0, 1), ylim = c(0, 1), 
+         xaxt = "n", yaxt = "n", xlab = "", ylab = "", 
+         main = "Precision, Recall, and F1 Score Comparison")
+    
+    # Add table headers
+    text(0.25, 0.9, "UBCF", font = 2)
+    text(0.75, 0.9, "IBCF", font = 2)
+    text(0.05, 0.8, "Metric", font = 2)
+    
+    # Add metric names
+    text(0.05, 0.7, "Precision")
+    text(0.05, 0.6, "Recall")
+    text(0.05, 0.5, "F1 Score")
+    
+    # Add UBCF values
+    if (!is.null(ubcf_metrics)) {
+      text(0.25, 0.7, sprintf("%.4f", ubcf_metrics$precision))
+      text(0.25, 0.6, sprintf("%.4f", ubcf_metrics$recall))
+      text(0.25, 0.5, sprintf("%.4f", ubcf_metrics$f1))
+    } else {
+      text(0.25, 0.7, "NA")
+      text(0.25, 0.6, "NA")
+      text(0.25, 0.5, "NA")
+    }
+    
+    # Add IBCF values
+    if (!is.null(ibcf_metrics)) {
+      text(0.75, 0.7, sprintf("%.4f", ibcf_metrics$precision))
+      text(0.75, 0.6, sprintf("%.4f", ibcf_metrics$recall))
+      text(0.75, 0.5, sprintf("%.4f", ibcf_metrics$f1))
+    } else {
+      text(0.75, 0.7, "NA")
+      text(0.75, 0.6, "NA")
+      text(0.75, 0.5, "NA")
+    }
+    
+    # Add border lines
+    abline(h = c(0.85, 0.45))
+    abline(v = c(0.5))
+    
+    dev.off()
+    cat("Visualization saved to 'precision_recall_comparison.pdf'\n")
+  }
+}
+
+cat("\nSimplified precision-recall evaluation complete!\n")
