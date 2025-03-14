@@ -206,17 +206,6 @@ ggplot(ratings, aes(x = rating)) +
   theme_minimal()
 dev.off()
 
-# Plot movies by year
-pdf("movies_by_year.pdf")
-movies %>%
-  filter(!is.na(year) & year >= 1950 & year <= 2023) %>%
-  count(year) %>%
-  ggplot(aes(x = year, y = n)) +
-  geom_col(fill = "darkgreen") +
-  labs(title = "Movies by Year", x = "Year", y = "Number of Movies") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
-dev.off()
 
 # Plot genre distribution (top 15)
 pdf("genre_distribution.pdf")
