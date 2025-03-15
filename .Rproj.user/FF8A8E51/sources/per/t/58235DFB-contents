@@ -1,0 +1,260 @@
+# MovieLens Data Understanding
+# This script loads the MovieLens datasets and performs exploratory data analysis
+
+# Load required libraries
+library(tidyverse)  # For data manipulation and visualization
+library(knitr)      # For nice table displays
+library(skimr)      # For detailed data summaries
+library(corrplot)   # For correlation visualization
+library(DataExplorer) # For automated EDA
+
+# Set the data directory path
+data_dir <- "data/"
+
+# ===== 1. LOAD DATASETS =====
+cat("Loading datasets from directory:", data_dir, "\n")
+
+# Check if the data directory exists
+if (!dir.exists(data_dir)) {
+  stop(paste("Error: Directory", data_dir, "does not exist!"))
+}
+
+# Load the datasets
+movies <- read.csv(paste0(data_dir, "movies.csv"), stringsAsFactors = FALSE)
+ratings <- read.csv(paste0(data_dir, "ratings.csv"), stringsAsFactors = FALSE)
+tags <- read.csv(paste0(data_dir, "tags.csv"), stringsAsFactors = FALSE)
+links <- read.csv(paste0(data_dir, "links.csv"), stringsAsFactors = FALSE)
+
+cat("Datasets successfully loaded!\n\n")
+
+# ===== 2. BASIC DATASET INFORMATION =====
+cat("=== BASIC DATASET INFORMATION ===\n")
+cat("Movies dataset dimensions:", dim(movies), "\n")
+cat("Ratings dataset dimensions:", dim(ratings), "\n")
+cat("Tags dataset dimensions:", dim(tags), "\n")
+cat("Links dataset dimensions:", dim(links), "\n\n")
+
+# ===== 3. CHECK FOR MISSING VALUES =====
+cat("=== MISSING VALUES CHECK ===\n")
+cat("Missing values in Movies dataset:", sum(is.na(movies)), "\n")
+cat("Missing values in Ratings dataset:", sum(is.na(ratings)), "\n")
+cat("Missing values in Tags dataset:", sum(is.na(tags)), "\n")
+cat("Missing values in Links dataset:", sum(is.na(links)), "\n\n")
+
+# If there are missing values, analyze them by column
+if (sum(is.na(movies)) > 0) {
+  cat("Missing values by column in Movies dataset:\n")
+  print(colSums(is.na(movies)))
+}
+if (sum(is.na(ratings)) > 0) {
+  cat("Missing values by column in Ratings dataset:\n")
+  print(colSums(is.na(ratings)))
+}
+if (sum(is.na(tags)) > 0) {
+  cat("Missing values by column in Tags dataset:\n")
+  print(colSums(is.na(tags)))
+}
+if (sum(is.na(links)) > 0) {
+  cat("Missing values by column in Links dataset:\n")
+  print(colSums(is.na(links)))
+}
+
+# ===== 4. EXPLORE MOVIES DATASET =====
+cat("=== MOVIES DATASET EXPLORATION ===\n")
+cat("Sample records from Movies dataset:\n")
+print(head(movies))
+
+# Extract year from movie title
+movies$year <- as.numeric(str_extract(movies$title, "\\(\\d{4}\\)"))
+movies$year <- as.numeric(gsub("[\\(\\)]", "", movies$year))
+movies$title_clean <- gsub(" \\(\\d{4}\\)", "", movies$title)
+
+# Count movies by year
+movies_by_year <- movies %>%
+  filter(!is.na(year)) %>%
+  count(year) %>%
+  arrange(desc(n))
+
+cat("\nMovies by year (top 10):\n")
+print(head(movies_by_year, 10))
+
+# Analyze genres
+cat("\nGenre analysis:\n")
+genres_split <- strsplit(movies$genres, "\\|")
+genre_counts <- table(unlist(genres_split))
+genre_df <- data.frame(
+  genre = names(genre_counts),
+  count = as.numeric(genre_counts)
+) %>% arrange(desc(count))
+
+print(genre_df)
+
+# ===== 5. EXPLORE RATINGS DATASET =====
+cat("\n=== RATINGS DATASET EXPLORATION ===\n")
+cat("Sample records from Ratings dataset:\n")
+print(head(ratings))
+
+# Convert timestamp to date
+ratings$date <- as.POSIXct(ratings$timestamp, origin = "1970-01-01")
+
+# Rating distribution
+rating_dist <- ratings %>%
+  count(rating) %>%
+  mutate(percentage = n / sum(n) * 100) %>%
+  arrange(rating)
+
+cat("\nRating distribution:\n")
+print(rating_dist)
+
+# User activity analysis
+user_activity <- ratings %>%
+  count(userId) %>%
+  summarise(
+    total_users = n(),
+    min_ratings = min(n),
+    max_ratings = max(n),
+    avg_ratings = mean(n),
+    median_ratings = median(n)
+  )
+
+cat("\nUser activity summary:\n")
+print(user_activity)
+
+# Movie popularity analysis
+movie_popularity <- ratings %>%
+  group_by(movieId) %>%
+  summarise(
+    rating_count = n(),
+    avg_rating = mean(rating),
+    rating_stdev = sd(rating)
+  ) %>%
+  arrange(desc(rating_count))
+
+cat("\nTop 10 most rated movies:\n")
+top_movies <- movie_popularity %>%
+  head(10) %>%
+  left_join(movies, by = "movieId") %>%
+  select(movieId, title_clean, rating_count, avg_rating, rating_stdev)
+
+print(top_movies)
+
+# ===== 6. EXPLORE TAGS DATASET =====
+cat("\n=== TAGS DATASET EXPLORATION ===\n")
+cat("Sample records from Tags dataset:\n")
+print(head(tags))
+
+# Convert timestamp to date
+tags$date <- as.POSIXct(tags$timestamp, origin = "1970-01-01")
+
+# Most common tags
+tag_counts <- tags %>%
+  count(tag) %>%
+  arrange(desc(n)) %>%
+  head(20)
+
+cat("\nTop 20 most common tags:\n")
+print(tag_counts)
+
+# ===== 7. EXPLORE LINKS DATASET =====
+cat("\n=== LINKS DATASET EXPLORATION ===\n")
+cat("Sample records from Links dataset:\n")
+print(head(links))
+
+# Check for missing or invalid IDs
+cat("\nCheck for missing IDs in Links dataset:\n")
+links_missing <- links %>%
+  summarise(
+    missing_imdbId = sum(is.na(imdbId)),
+    missing_tmdbId = sum(is.na(tmdbId))
+  )
+print(links_missing)
+
+# ===== 8. DATA RELATIONSHIPS =====
+cat("\n=== DATA RELATIONSHIPS ===\n")
+
+# Check if all movies in the ratings dataset exist in the movies dataset
+movies_in_ratings <- ratings %>%
+  distinct(movieId) %>%
+  nrow()
+movies_total <- nrow(movies)
+movies_with_ratings <- sum(movies$movieId %in% ratings$movieId)
+
+cat("Total unique movies in ratings:", movies_in_ratings, "\n")
+cat("Total movies in movies dataset:", movies_total, "\n")
+cat("Movies with at least one rating:", movies_with_ratings, "\n")
+cat("Movies with no ratings:", movies_total - movies_with_ratings, "\n")
+
+# Check if all movies in the tags dataset exist in the movies dataset
+movies_in_tags <- tags %>%
+  distinct(movieId) %>%
+  nrow()
+movies_with_tags <- sum(movies$movieId %in% tags$movieId)
+
+cat("\nTotal unique movies in tags:", movies_in_tags, "\n")
+cat("Movies with at least one tag:", movies_with_tags, "\n")
+cat("Movies with no tags:", movies_total - movies_with_tags, "\n")
+
+# ===== 9. VISUALIZATION OF KEY METRICS =====
+cat("\n=== VISUALIZING KEY METRICS ===\n")
+cat("Creating visualizations of key metrics...\n")
+
+# Plot rating distribution
+pdf("rating_distribution.pdf")
+ggplot(ratings, aes(x = rating)) +
+  geom_histogram(binwidth = 0.5, fill = "skyblue", color = "darkblue") +
+  labs(title = "Rating Distribution", x = "Rating", y = "Count") +
+  theme_minimal()
+dev.off()
+
+
+# Plot genre distribution (top 15)
+pdf("genre_distribution.pdf")
+genre_df %>%
+  head(15) %>%
+  ggplot(aes(x = reorder(genre, count), y = count)) +
+  geom_col(fill = "purple") +
+  coord_flip() +
+  labs(title = "Top 15 Genres", x = "Genre", y = "Count") +
+  theme_minimal()
+dev.off()
+
+# Plot user rating activity
+pdf("user_activity.pdf")
+ratings %>%
+  count(userId) %>%
+  ggplot(aes(x = n)) +
+  geom_histogram(bins = 30, fill = "orange", color = "brown") +
+  scale_x_log10() +
+  labs(title = "Distribution of Ratings per User (Log Scale)", 
+       x = "Number of Ratings", y = "Count of Users") +
+  theme_minimal()
+dev.off()
+
+cat("Visualizations have been saved to PDF files!\n")
+
+# ===== 10. SAVE PROCESSED DATASETS =====
+cat("\n=== SAVING PROCESSED DATASETS ===\n")
+
+# Save the processed datasets
+save(movies, ratings, tags, links, file = "processed_data.RData")
+cat("Processed datasets saved to 'processed_data.RData'\n")
+
+# ===== 11. SUMMARY STATISTICS =====
+cat("\n=== SUMMARY STATISTICS ===\n")
+
+# Number of users, movies, ratings, and tags
+summary_stats <- list(
+  users = length(unique(ratings$userId)),
+  movies = nrow(movies),
+  ratings = nrow(ratings),
+  tags = nrow(tags),
+  avg_rating = mean(ratings$rating),
+  median_rating = median(ratings$rating),
+  ratings_per_user = nrow(ratings) / length(unique(ratings$userId)),
+  ratings_per_movie = nrow(ratings) / length(unique(ratings$movieId))
+)
+
+cat("Summary statistics:\n")
+print(summary_stats)
+
+cat("\nData understanding phase complete!\n")
