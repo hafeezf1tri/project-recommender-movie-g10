@@ -21,7 +21,7 @@ The project scope includes:
 - **Implementation of multiple recommendation approaches**:
   - Collaborative Filtering (User-based and Item-based)
   - Content-Based Filtering (Using TF-IDF, word embeddings, etc.)
-  - Hybrid Model (Optional)
+(3 Models in Total)
 
 - **Model evaluation** using metrics such as:
   - Root Mean Squared Error (RMSE)
@@ -66,43 +66,6 @@ The project scope includes:
 - IBCF shows better rating prediction accuracy (lower RMSE)
 - UBCF provides better recommendation quality (higher precision and recall)
 - Models show complementary strengths that could be leveraged in a hybrid approach
-
-## File Structure
-
-```
-├── data/
-│   ├── movies.csv
-│   ├── ratings.csv
-│   ├── tags.csv
-│   └── links.csv
-├── [0] libraries installation.R
-├── [1] data understanding.R
-├── [3] prepping to data.R
-├── [3.1] prepared data validation testing.R
-├── [4] UBCF model creation and training.R
-├── [5] UBCF TESTING.R
-├── [6] IBCF model creation and training.R
-├── [7] IBCF TESTING.R
-├── [8] Multi Testing IBCF and UBCF models.R
-├──  ibcf_model.rds
-├── ubcf_model.rds
-├── prepared_data.RData
-├── processed_data.RData
-├── movie-recommender-g10.Rproj
-├── genre_distribution.pdf
-├── precision_recall_comparison.pdf
-├── rating_distribution.pdf
-├── rating_distribution_analysis.pdf
-├── recommender_error_metrics.pdf
-├── ubcf_rmse_distribution.pdf
-├── ubcf_validation_prec_rec.pdf
-├── ubcf_validation_roc.pdf
-├── user_activity.pdf
-├── precision_recall_data.csv
-├── recommender_metrics_summary.csv
-├── recommender_precision_recall.csv
-└── README.md
-```
 
 ## Requirements
 - R 4.0.0 or higher
