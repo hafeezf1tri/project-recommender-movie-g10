@@ -21,7 +21,7 @@ The project scope includes:
 - **Implementation of multiple recommendation approaches**:
   - Collaborative Filtering (User-based and Item-based)
   - Content-Based Filtering (Using TF-IDF, word embeddings, etc.)
-  - Hybrid Model (Optional)
+(3 Models in Total)
 
 - **Model evaluation** using metrics such as:
   - Root Mean Squared Error (RMSE)
