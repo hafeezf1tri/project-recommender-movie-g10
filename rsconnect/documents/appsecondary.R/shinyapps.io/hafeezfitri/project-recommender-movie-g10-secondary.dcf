@@ -1,0 +1,12 @@
+name: project-recommender-movie-g10-secondary
+title: project-recommender-movie-g10-secondary
+username: hafeezfitri
+account: hafeezfitri
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 14302599
+bundleId: 9979906
+url: https://hafeezfitri.shinyapps.io/project-recommender-movie-g10-secondary/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

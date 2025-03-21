@@ -1,4 +1,6 @@
 "Metric","UBCF","IBCF"
-"Precision",0.101,NA
-"Recall",0.0188,0.011
-"F1 Score",0.0295,NA
+"Precision",0.101,0.0833
+"Recall",0.0188,0.012
+"F1 Score",0.0295,0.0196
+"Users Evaluated",100,92
+"Errors",0,8
