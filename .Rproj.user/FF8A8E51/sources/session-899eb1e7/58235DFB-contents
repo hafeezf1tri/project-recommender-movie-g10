@@ -233,11 +233,11 @@ dev.off()
 cat("Visualizations have been saved to PDF files!\n")
 
 # ===== 10. SAVE PROCESSED DATASETS =====
-cat("\n=== SAVING PROCESSED DATASETS ===\n")
+#cat("\n=== SAVING PROCESSED DATASETS ===\n")
 
 # Save the processed datasets
-save(movies, ratings, tags, links, file = "processed_data.RData")
-cat("Processed datasets saved to 'processed_data.RData'\n")
+#save(movies, ratings, tags, links, file = "processed_data.RData")
+#cat("Processed datasets saved to 'processed_data.RData'\n")
 
 # ===== 11. SUMMARY STATISTICS =====
 cat("\n=== SUMMARY STATISTICS ===\n")
