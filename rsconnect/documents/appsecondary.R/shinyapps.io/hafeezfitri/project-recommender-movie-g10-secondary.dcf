@@ -5,7 +5,7 @@ account: hafeezfitri
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 14302599
-bundleId: 9985763
+bundleId: 10004249
 url: https://hafeezfitri.shinyapps.io/project-recommender-movie-g10-secondary/
 version: 1
 asMultiple: FALSE

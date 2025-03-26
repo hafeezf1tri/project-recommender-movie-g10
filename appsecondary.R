@@ -296,8 +296,9 @@ ui <- dashboardPage(
                   ),
                   h4("Performance Metrics:"),
                   tableOutput("model_metrics"),
-                  h4("Team Members:"),
-                  p("Your Team Member Names Here")
+                  
+  
+
                 )
               )
       )

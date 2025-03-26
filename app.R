@@ -127,8 +127,8 @@ ui <- dashboardPage(
                   status = "primary",
                   solidHeader = TRUE,
                   selectInput("content_movie", "Select a Movie:", 
-                              choices = setNames(movies$movieId, movies$title),
-                              selected = movies$movieId[1]),
+                              choices = setNames(movies$movieId, movies$title)[order(movies$title)],
+                              selected = movies$movieId[which.min(movies$title)]),
                   numericInput("content_n", "Number of Recommendations:", 10, min = 1, max = 20),
                   actionButton("content_recommend", "Find Similar Movies", 
                                class = "btn-primary")
@@ -296,8 +296,9 @@ ui <- dashboardPage(
                   ),
                   h4("Performance Metrics:"),
                   tableOutput("model_metrics"),
-                  h4("Team Members:"),
-                  p("Your Team Member Names Here")
+                  
+                  
+                  
                 )
               )
       )
@@ -465,12 +466,12 @@ server <- function(input, output, session) {
   })
   
   
-# Add these debug lines at the beginning of your IBCF recommendation code
+  # Add these debug lines at the beginning of your IBCF recommendation code
   cat("IBCF model dimensions:", dim(getModel(ibcf_model)$data), "\n")
   cat("Number of IBCF item IDs:", length(colnames(getModel(ibcf_model)$data)), "\n")
   ibcf_item_ids <- colnames(getModel(ibcf_model)$data)
   cat("First 5 IBCF item IDs:", head(ibcf_item_ids, 5), "\n")
-
+  
   # IBCF recommendations
   observeEvent(input$ibcf_recommend, {
     # Extract the similarity matrix from the model and get its dimensions
